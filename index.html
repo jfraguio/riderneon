@@ -169,6 +169,35 @@ canvas{position:fixed;inset:0;display:block}
   to{box-shadow:0 0 30px rgba(255,47,214,.95),inset 0 0 16px rgba(255,47,214,.5)}
 }
 #floaters{position:absolute;inset:0;overflow:hidden}
+/* ---------- power-up indicator ---------- */
+#power{
+  position:absolute;left:50%;bottom:70px;transform:translateX(-50%);
+  width:min(280px,40vw);text-align:center;display:none;
+}
+#power.show{display:block}
+#powerLabel{
+  font-size:11px;letter-spacing:.4em;color:#fff;margin-bottom:4px;
+  text-shadow:0 0 10px var(--pcol,#00f0ff),0 0 26px var(--pcol,#00f0ff);
+}
+#powerBar{
+  position:relative;height:7px;
+  border:1px solid var(--pcol,#00f0ff);
+  box-shadow:0 0 10px var(--pcol,#00f0ff);
+  background:rgba(4,2,14,.5);
+}
+#powerFill{
+  position:absolute;inset:1px;transform-origin:left center;
+  background:var(--pcol,#00f0ff);
+  box-shadow:0 0 12px var(--pcol,#00f0ff);
+}
+/* ---------- event banner (warnings) ---------- */
+#banner{
+  position:absolute;top:22%;left:50%;transform:translateX(-50%);
+  font-size:clamp(16px,3vw,30px);letter-spacing:.3em;color:#ffd447;white-space:nowrap;
+  text-shadow:0 0 12px var(--org),0 0 40px var(--org);
+  opacity:0;transition:opacity .35s;pointer-events:none;
+}
+#banner.show{opacity:1;animation:blink .5s steps(2) infinite}
 .floater{
   position:absolute;transform:translate(-50%,0);
   font-size:clamp(16px,2.6vw,26px);letter-spacing:.14em;color:#fff;white-space:nowrap;
@@ -297,6 +326,8 @@ body.touch.portrait #rotate{display:flex}
       <div id="turboLabel">TURBO</div>
       <div id="turboBar"><div id="turboFill"></div><div id="turboSegs"></div></div>
     </div>
+    <div id="power"><div id="powerLabel"></div><div id="powerBar"><div id="powerFill"></div></div></div>
+    <div id="banner"></div>
     <div id="floaters"></div>
     <div id="camInd"></div>
     <div id="muteInd">MUTED</div>
@@ -387,6 +418,33 @@ const store = {
 };
 
 /* ============================================================
+   TUNING — ajustes rápidos de juego
+   Edita estos valores y recarga la página. Son la única fuente
+   de verdad: CONFIG los referencia, no los dupliques abajo.
+============================================================ */
+const TUNING = {
+  /** Velocidad base inicial de la moto, en unidades/segundo.
+      1 km = 1000 unidades. El valor original del juego es 30.
+      Súbelo para partidas más frenéticas desde el inicio,
+      bájalo para un arranque más tranquilo. */
+  BASE_SPEED: 30,
+
+  /** Velocidad máxima alcanzable SIN turbo (techo de la curva
+      logarítmica de dificultad), en unidades/segundo. */
+  MAX_SPEED: 90,
+
+  /** Multiplicador de velocidad del turbo sobre la velocidad
+      actual. 1.8 = +80%. Con turbo se puede superar MAX_SPEED. */
+  TURBO_MULT: 1.8,
+
+  /** Densidad global de tráfico. 1 = densidad normal.
+      Escala inversamente el intervalo de spawn (0.5 = la mitad
+      de vehículos, 2 = el doble). Las zonas de congestión
+      multiplican SOBRE este valor. */
+  TRAFFIC_DENSITY: 1.0,
+};
+
+/* ============================================================
    CONFIG
 ============================================================ */
 const CONFIG = {
@@ -394,8 +452,8 @@ const CONFIG = {
   playerZ: 0,
   playerHalfW: 0.5,
   playerHalfL: 1.05,
-  speed: { base: 30, max: 90, logK: 14, logScale: 1.2 },
-  turbo: { mult: 1.8, drainPerSec: 0.25, rechargePerKm: 0.25, fovBoost: 15 },
+  speed: { base: TUNING.BASE_SPEED, max: TUNING.MAX_SPEED, logK: 14, logScale: 1.2 },
+  turbo: { mult: TUNING.TURBO_MULT, drainPerSec: 0.25, rechargePerKm: 0.25, fovBoost: 15 },
   laneDamp: 13,          // ~0.25 s lane easing
   leanMax: 0.44,         // ~25 deg
   fog: 0.0034,
@@ -411,6 +469,46 @@ const CONFIG = {
     first: { pos: [0, 1.34, -0.30], fov: 85 },
   },
   bloom: { strength: 0.9, radius: 0.6, threshold: 0.75 },
+  /* --- SPECS2 --- */
+  ramps: {
+    minKm: 1, gapMin: 400, gapMax: 900,
+    upLen: 18, platLen: 10, height: 2.2,
+    gravity: 18, impulse: 9, turboBonus: 4,
+    landBonus: 750, airPtsPerSec: 200,
+  },
+  tunnels: {
+    minKm: 2, gapMin: 600, gapMax: 1200,
+    lenMin: 150, lenMax: 300, ringGap: 20,
+    fogMult: 2.1, bonus: 1000, densityCap: 0.85,
+  },
+  powerups: {
+    minKm: 0.5, gapMin: 500, gapMax: 1100, poolN: 6,
+    /* type: [peso, duración s] */
+    types: {
+      shield:    { w: 0.9, dur: 15, color: 0x00f0ff, label: 'SHIELD' },
+      magnet:    { w: 1.0, dur: 10, color: 0xff2fd6, label: 'MAGNET' },
+      slowmo:    { w: 0.8, dur: 6,  color: 0x7ad9ff, label: 'SLOW-MO' },
+      turbofill: { w: 1.0, dur: 0,  color: 0xff9e00, label: 'TURBO +100%' },
+      double:    { w: 0.9, dur: 12, color: 0xffd447, label: 'DOUBLE PTS' },
+    },
+  },
+  curves: {
+    minKm: 1.5,
+    straightMin: 280, straightMax: 620,
+    lenMin: 200, lenMax: 400,
+    kGentle: 0.00013, kSharp: 0.00030,
+    leanExtra: 0.21,
+  },
+  congestion: {
+    minKm: 2.5, gapMin: 800, gapMax: 1500,
+    lenMin: 150, lenMax: 250, warnDist: 120,
+    density: 2.2, gapWindowScale: 0.6, slowFrac: 0.85, bonus: 800,
+  },
+  drones: {
+    minKm: 4, cooldownMin: 15, cooldownMax: 25,
+    trackTime: 1.2, lockTime: 0.8, wallLife: 2.2,
+    wallZ: -46, nearMissPts: 900, twoAtKm: 10,
+  },
 };
 
 /* Horizon phases (palette + feature weights) */
@@ -452,6 +550,31 @@ const phaseCtx = {
 };
 
 /* ============================================================
+   CURVED-WORLD HELPER — bends the render in view space.
+   Logic stays straight (lanes/collisions in 1D); only the
+   projection is bent: mv.x += uCurve * mv.z^2
+============================================================ */
+const curveUniform = { value: 0 };
+function applyCurve(mat) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = shader => {
+    if (prev) prev(shader);
+    shader.uniforms.uCurve = curveUniform;
+    shader.vertexShader = 'uniform float uCurve;\n' + shader.vertexShader.replace(
+      '#include <project_vertex>',
+      `#include <project_vertex>
+       mvPosition.x += uCurve * mvPosition.z * mvPosition.z;
+       gl_Position = projectionMatrix * mvPosition;`
+    );
+  };
+  mat.customProgramCacheKey = () => 'curved';
+  return mat;
+}
+/* GLSL snippet for custom ShaderMaterials */
+const CURVE_VERT_DECL = 'uniform float uCurve;';
+const CURVE_BEND = 'mv.x += uCurve * mv.z * mv.z;';
+
+/* ============================================================
    RENDERER / SCENE / CAMERA / LIGHTS
 ============================================================ */
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -491,6 +614,7 @@ const FXShader = {
     uGlitch: { value: 0 },
     uVig: { value: 0.8 },
     uScan: { value: 0.10 },
+    uTint: { value: 0 },
     uRes: { value: new THREE.Vector2(innerWidth, innerHeight) },
   },
   vertexShader: /* glsl */`
@@ -499,7 +623,7 @@ const FXShader = {
   `,
   fragmentShader: /* glsl */`
     uniform sampler2D tDiffuse;
-    uniform float uTime, uAberr, uGlitch, uVig, uScan;
+    uniform float uTime, uAberr, uGlitch, uVig, uScan, uTint;
     uniform vec2 uRes;
     varying vec2 vUv;
     float hash21(vec2 p){ p = fract(p * vec2(234.34, 435.345)); p += dot(p, p + 34.23); return fract(p.x * p.y); }
@@ -520,6 +644,7 @@ const FXShader = {
       float vig = smoothstep(0.95, 0.30, length(dir) * 1.30);
       col *= mix(1.0, vig, uVig);
       col *= 1.0 - uScan * 0.5 * (0.5 + 0.5 * sin(uv.y * uRes.y * 3.14159));
+      col = mix(col, col * vec3(0.72, 0.9, 1.35) + vec3(0.0, 0.01, 0.04), uTint);
       col += (hash21(uv * uRes + uTime * 137.0) - 0.5) * 0.035;
       gl_FragColor = vec4(col, 1.0);
     }
@@ -594,6 +719,17 @@ class AudioEngine {
     this.sfxGain = ctx.createGain();
     this.sfxGain.gain.value = 0.9;
     this.sfxGain.connect(this.master);
+
+    /* tunnel echo bus (feedback delay, opened while inside a tunnel) */
+    this.echoIn = ctx.createGain(); this.echoIn.gain.value = 0;
+    const echoD = ctx.createDelay(1); echoD.delayTime.value = 0.17;
+    const echoFb = ctx.createGain(); echoFb.gain.value = 0.42;
+    const echoLp = ctx.createBiquadFilter(); echoLp.type = 'lowpass'; echoLp.frequency.value = 2400;
+    this.sfxGain.connect(this.echoIn);
+    this.echoIn.connect(echoD);
+    echoD.connect(echoLp);
+    echoLp.connect(echoFb).connect(echoD);
+    echoLp.connect(this.master);
 
     /* sub-buses */
     this.bassFilter = ctx.createBiquadFilter();
@@ -816,6 +952,16 @@ class AudioEngine {
   lane(dir) { this._noiseHit({ dur: 0.16, from: 900, to: 1900, gain: 0.13, pan: dir * 0.5 }); }
   turboOn() { this._noiseHit({ dur: 0.45, from: 320, to: 4800, gain: 0.24 }); }
   turboOff() { this._noiseHit({ dur: 0.3, from: 3200, to: 380, gain: 0.14 }); }
+  /* --- SPECS2 SFX --- */
+  setTunnel(v) { if (this.ctx) this.echoIn.gain.setTargetAtTime(v ? 0.5 : 0, this.ctx.currentTime, 0.3); }
+  jump() { this._noiseHit({ dur: 0.5, from: 420, to: 5200, gain: 0.22 }); this._tone({ freq: 520, to: 1240, dur: 0.35, type: 'triangle', gain: 0.12 }); }
+  land() { this._noiseHit({ dur: 0.28, from: 1400, to: 220, q: 0.8, gain: 0.28, type: 'lowpass' }); this._tone({ freq: 140, to: 60, dur: 0.18, type: 'sine', gain: 0.22 }); }
+  pickup() { this._tone({ freq: 880, dur: 0.08, gain: 0.14 }); this._tone({ t: 0.08, freq: 1320, dur: 0.1, gain: 0.14 }); this._tone({ t: 0.16, freq: 1760, dur: 0.2, type: 'triangle', gain: 0.15 }); }
+  bonus() { this._tone({ freq: 1047, dur: 0.1, type: 'triangle', gain: 0.15 }); this._tone({ t: 0.1, freq: 1568, dur: 0.14, type: 'triangle', gain: 0.15 }); this._tone({ t: 0.22, freq: 2093, dur: 0.26, type: 'triangle', gain: 0.13 }); }
+  shieldBreak() { this._noiseHit({ dur: 0.4, from: 3800, to: 500, q: 1.6, gain: 0.3 }); this._tone({ freq: 660, to: 180, dur: 0.3, type: 'sawtooth', gain: 0.16 }); }
+  droneAlert() { this._tone({ freq: 740, dur: 0.16, type: 'square', gain: 0.1 }); this._tone({ t: 0.18, freq: 555, dur: 0.16, type: 'square', gain: 0.1 }); this._tone({ t: 0.36, freq: 740, dur: 0.16, type: 'square', gain: 0.1 }); }
+  droneCharge() { this._tone({ freq: 220, to: 1760, dur: 0.7, type: 'sawtooth', gain: 0.1 }); }
+  droneZap() { this._noiseHit({ dur: 0.3, from: 5200, to: 900, q: 2.5, gain: 0.26 }); this._tone({ freq: 1900, to: 240, dur: 0.22, type: 'square', gain: 0.13 }); }
   nearMiss(pan) {
     this._noiseHit({ dur: 0.22, from: 2600, to: 500, q: 2, gain: 0.2, pan });
     this._tone({ freq: 700, to: 170, dur: 0.16, type: 'sawtooth', gain: 0.1, pan });
@@ -1126,8 +1272,8 @@ class Scroller {
 const scroller = new Scroller();
 
 /* helper: colored box geometry (vertex colors, HDR allowed) */
-function cBox(w, h, d, x, y, z, color, ry = 0) {
-  const g = new THREE.BoxGeometry(w, h, d);
+function cBox(w, h, d, x, y, z, color, ry = 0, segZ = 1) {
+  const g = new THREE.BoxGeometry(w, h, d, 1, 1, segZ);
   if (ry) g.rotateY(ry);
   g.translate(x, y, z);
   const n = g.attributes.position.count;
@@ -1147,7 +1293,7 @@ function cCylinder(rt, rb, h, x, y, z, color, rx = 0, rz = 0) {
   g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
   return g;
 }
-const vcBasicMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+const vcBasicMat = applyCurve(new THREE.MeshBasicMaterial({ vertexColors: true }));
 
 /* ============================================================
    ROAD SYSTEM — wet asphalt shader + barriers + neon arches
@@ -1168,8 +1314,10 @@ class RoadSystem {
         uFogColor: { value: new THREE.Color(PHASES[0].fog) },
         uFogDensity: { value: CONFIG.fog },
         uHor: { value: new THREE.Color(PHASES[0].horizon) },
+        uCurve: curveUniform,
       },
       vertexShader: /* glsl */`
+        ${CURVE_VERT_DECL}
         varying vec2 vW;
         varying float vDist;
         void main(){
@@ -1177,6 +1325,7 @@ class RoadSystem {
           vW = wp.xz;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           vDist = -mv.z;
+          ${CURVE_BEND}
           gl_Position = projectionMatrix * mv;
         }
       `,
@@ -1253,17 +1402,19 @@ class RoadSystem {
     scene.add(road);
 
     /* --- static barriers with neon strips --- */
-    const barrierMat = new THREE.MeshStandardMaterial({ color: 0x11131c, metalness: 0.4, roughness: 0.7 });
-    const neonCyanMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.1, 2.2, 2.6) });
-    const neonMagMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.15, 1.35) });
+    const barrierMat = applyCurve(new THREE.MeshStandardMaterial({ color: 0x11131c, metalness: 0.4, roughness: 0.7 }));
+    const neonCyanMat = applyCurve(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.1, 2.2, 2.6) }));
+    const neonMagMat = applyCurve(new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.15, 1.35) }));
     for (const side of [-1, 1]) {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.9, 780), barrierMat);
+      /* long meshes need z-segments so the curved-world bend follows the road
+         instead of cutting straight across it */
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.9, 780, 1, 1, 96), barrierMat);
       b.position.set(side * 7.9, 0.45, -340);
       b.frustumCulled = false;
-      const n1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 780), neonCyanMat);
+      const n1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 780, 1, 1, 96), neonCyanMat);
       n1.position.set(side * 7.9, 0.95, -340);
       n1.frustumCulled = false;
-      const n2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 780), neonMagMat);
+      const n2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 780, 1, 1, 96), neonMagMat);
       n2.position.set(side * 7.58, 0.3, -340);
       n2.frustumCulled = false;
       scene.add(b, n1, n2);
@@ -1364,16 +1515,16 @@ class CitySystem {
     ];
     /* --- near/mid buildings: 3 instanced meshes --- */
     this.buildingSets = [];
-    const roofMat = new THREE.MeshLambertMaterial({ color: 0x07060d });
+    const roofMat = applyCurve(new THREE.MeshLambertMaterial({ color: 0x07060d }));
     for (let v = 0; v < 3; v++) {
       const tex = makeWindowTexture(1234 + v * 777, palettes[v]);
       tex.repeat.set(2, 2 + v);
-      const mat = new THREE.MeshLambertMaterial({
+      const mat = applyCurve(new THREE.MeshLambertMaterial({
         color: 0x0a0912,
         emissive: 0xffffff,
         emissiveMap: tex,
         emissiveIntensity: 0.85,
-      });
+      }));
       const geo = new THREE.BoxGeometry(1, 1, 1);
       geo.translate(0, 0.5, 0);
       /* dark roofs/undersides: faces py (2) and ny (3) use the roof material */
@@ -1405,8 +1556,8 @@ class CitySystem {
     /* --- far skyline silhouettes --- */
     const farTex = makeWindowTexture(999, ['#87c9de', '#ffd9a0', '#ffffff']);
     farTex.repeat.set(3, 6);
-    const farMat = new THREE.MeshBasicMaterial({ color: 0x8a86a8, map: farTex });
-    const farRoofMat = new THREE.MeshBasicMaterial({ color: 0x0a0714 });
+    const farMat = applyCurve(new THREE.MeshBasicMaterial({ color: 0x8a86a8, map: farTex }));
+    const farRoofMat = applyCurve(new THREE.MeshBasicMaterial({ color: 0x0a0714 }));
     const farGeo = new THREE.BoxGeometry(1, 1, 1);
     farGeo.translate(0, 0.5, 0);
     for (let gi = 0; gi < farGeo.groups.length; gi++) {
@@ -1440,10 +1591,17 @@ class CitySystem {
           uMode: { value: i % 4 },
           uColA: { value: new THREE.Color(choose([0x00f0ff, 0xff2fd6, 0xff9e00, 0x7dff6a])) },
           uColB: { value: new THREE.Color(choose([0x00f0ff, 0xff2fd6])) },
+          uCurve: curveUniform,
         },
         vertexShader: /* glsl */`
+          ${CURVE_VERT_DECL}
           varying vec2 vUv;
-          void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+          void main(){
+            vUv = uv;
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            ${CURVE_BEND}
+            gl_Position = projectionMatrix * mv;
+          }
         `,
         fragmentShader: /* glsl */`
           varying vec2 vUv;
@@ -1523,7 +1681,7 @@ class CitySystem {
       new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.15, 0.15) }),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.15, 0.15) }),
     ];
-    const towerMat = new THREE.MeshBasicMaterial({ color: 0x0a0812 });
+    const towerMat = applyCurve(new THREE.MeshBasicMaterial({ color: 0x0a0812 }));
     for (let i = 0; i < 6; i++) {
       const side = i % 2 ? 1 : -1;
       const g = new THREE.Group();
@@ -1745,6 +1903,15 @@ class Player {
     this.pitch = 0;
     this.dying = false;
     this.deathSpin = 0;
+    /* vertical state (ramps & jumps) */
+    this.y = 0;
+    this.vy = 0;
+    this.airborne = false;
+    this.airT = 0;
+    this.landT = 0;
+    this.justLanded = false;
+    this.groundH = 0;      // set each frame by RampSystem
+    this.curveLean = 0;    // set each frame by CurveSystem
 
     this.root = new THREE.Group();
     this.leanG = new THREE.Group();
@@ -1842,15 +2009,22 @@ class Player {
   }
   changeLane(dir) {
     if (this.dying) return false;
+    if (this.airborne && this.airT < 0.3) return false;   // no steering right after takeoff
     const nl = clamp(this.lane + dir, 0, 3);
     if (nl === this.lane) return false;
     this.lane = nl;
     return true;
   }
+  launch(vy) {
+    this.airborne = true;
+    this.airT = 0;
+    this.vy = vy;
+  }
   update(dt, ds, speedNorm, turboT, time) {
     const target = CONFIG.lanes[this.lane];
     const prevX = this.x;
-    this.x = damp(this.x, target, CONFIG.laneDamp, dt);
+    const laneK = this.airborne ? CONFIG.laneDamp * 0.5 : CONFIG.laneDamp;
+    this.x = damp(this.x, target, laneK, dt);
     this.vx = dt > 0 ? (this.x - prevX) / dt : 0;
     this.root.position.x = this.x;
 
@@ -1859,20 +2033,41 @@ class Player {
       this.leanG.rotation.z = damp(this.leanG.rotation.z, 1.35, 4, dt);
       this.root.rotation.y = damp(this.root.rotation.y, 0.8, 3, dt);
       this.root.position.z = damp(this.root.position.z, 3.5, 1.5, dt);
+      this.y = damp(this.y, 0, 6, dt);
     } else {
-      const leanT = clamp(-this.vx * 0.032, -CONFIG.leanMax, CONFIG.leanMax);
+      /* vertical: ramp surface follow / airborne ballistic */
+      if (this.airborne) {
+        this.airT += dt;
+        this.vy -= CONFIG.ramps.gravity * dt;
+        this.y += this.vy * dt;
+        if (this.y <= this.groundH) {
+          this.y = this.groundH;
+          this.vy = 0;
+          this.airborne = false;
+          this.landT = 0.25;
+          this.justLanded = true;
+        }
+      } else {
+        if (this.groundH > this.y) this.y = this.groundH;             // climb ramp surface
+        else this.y = Math.max(this.groundH, this.y - 10 * dt);       // settle down
+      }
+      if (this.landT > 0) this.landT -= dt;
+      const leanT = clamp(-this.vx * 0.032, -CONFIG.leanMax, CONFIG.leanMax) + this.curveLean;
       this.lean = damp(this.lean, leanT, 11, dt);
       this.leanG.rotation.z = this.lean;
-      const pitchT = -0.10 * turboT;
+      const pitchT = -0.10 * turboT + (this.airborne ? clamp(-this.vy * 0.035, -0.35, 0.3) : 0);
       this.pitch = damp(this.pitch, pitchT, 6, dt);
       this.leanG.rotation.x = this.pitch;
+      /* landing squash */
+      this.leanG.scale.y = this.landT > 0 ? 1 - 0.22 * Math.sin((this.landT / 0.25) * Math.PI) : 1;
       /* engine vibration */
       this.leanG.position.y = Math.sin(time * 95) * 0.006 * (0.4 + speedNorm + turboT * 0.7);
     }
+    this.root.position.y = this.y;
     /* wheels spin with distance */
     for (const w of this.wheels) w.mesh.rotation.x -= ds / w.r;
     /* trails */
-    const ty = 0.62, tz = 0.95;
+    const ty = 0.62 + this.y, tz = 0.95;
     const cos = Math.cos(this.leanG.rotation.z), sin = Math.sin(this.leanG.rotation.z);
     this.trailL.update(ds, this.x - 0.2 * cos, ty + 0.2 * sin, tz, turboT);
     this.trailR.update(ds, this.x + 0.2 * cos, ty - 0.2 * sin, tz, turboT);
@@ -1884,9 +2079,14 @@ class Player {
     this.deathSpin = 0;
     this.lean = 0;
     this.pitch = 0;
+    this.y = 0; this.vy = 0;
+    this.airborne = false; this.airT = 0; this.landT = 0;
+    this.justLanded = false;
+    this.groundH = 0; this.curveLean = 0;
     this.root.position.set(this.x, 0, 0);
     this.root.rotation.set(0, 0, 0);
     this.leanG.rotation.set(0, 0, 0);
+    this.leanG.scale.set(1, 1, 1);
     this.leanG.position.y = 0;
     this.trailL.resetTo(this.x, 0.62, 0.95);
     this.trailR.resetTo(this.x, 0.62, 0.95);
@@ -1898,8 +2098,8 @@ class Player {
 ============================================================ */
 class TrafficSystem {
   constructor() {
-    const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.7, roughness: 0.42 });
-    const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+    const bodyMat = applyCurve(new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.7, roughness: 0.42 }));
+    const glowMat = applyCurve(new THREE.MeshBasicMaterial({ vertexColors: true }));
     this.defs = {
       car: {
         n: 16, halfW: 0.95, halfL: 1.9, frac: [0.40, 0.60],
@@ -1975,8 +2175,24 @@ class TrafficSystem {
       this.pools[type] = { def, bodyMesh, glowMesh, slots };
     }
     this.acc = 0;
+    this.densityMult = 1;    // congestion zones / tunnel cap (set by EventDirector)
+    this.gapScale = 1;       // gap window scale (congestion shrinks it)
+    this.slowFactor = 1;     // slow-mo power-up (<1 = traffic approaches slower)
+    this.congested = false;
     this.all = [];
     for (const type of ['car', 'truck', 'bike']) this.all.push(...this.pools[type].slots);
+  }
+
+  /* deactivate one NPC (shield impact) */
+  kill(v) {
+    const pool = this.pools[v.type];
+    const i = pool.slots.indexOf(v);
+    if (i < 0) return;
+    v.active = false; v.z = -999; v.blinkT = 0; v.changing = false;
+    pool.bodyMesh.setMatrixAt(i, this.zeroM);
+    pool.glowMesh.setMatrixAt(i, this.zeroM);
+    pool.bodyMesh.instanceMatrix.needsUpdate = true;
+    pool.glowMesh.instanceMatrix.needsUpdate = true;
   }
 
   /* set of lanes occupied around a z position */
@@ -1992,8 +2208,9 @@ class TrafficSystem {
     return s;
   }
   canPlace(lane, z, halfL, skip = null) {
-    const blocked = this.lanesBlockedNear(z, CONFIG.spawn.gapWindow, skip);
+    const blocked = this.lanesBlockedNear(z, CONFIG.spawn.gapWindow * this.gapScale, skip);
     if (!blocked.has(lane) && blocked.size >= 3) return false; // would seal all 4 lanes
+    if (typeof ramps !== 'undefined' && ramps.blocksLane(lane, z)) return false;
     for (const v of this.all) {
       if (!v.active || v === skip) continue;
       const vLanes = (v.changing || v.blinkT > 0) ? [v.lane, v.laneTo] : [v.lane];
@@ -2015,6 +2232,7 @@ class TrafficSystem {
         slot.x = CONFIG.lanes[lane];
         slot.z = z;
         slot.speed = rand(pool.def.frac[0], pool.def.frac[1]) * baseSpeed;
+        if (this.congested) slot.speed *= CONFIG.congestion.slowFrac;  // retención
         slot.minGap = 99; slot.passed = false;
         slot.blinkT = 0; slot.changing = false; slot.flashOn = false;
         return true;
@@ -2028,6 +2246,7 @@ class TrafficSystem {
       this.acc += ds;
       let spacing = Math.max(CONFIG.spawn.distMin, CONFIG.spawn.dist0 - km * 4.2);
       spacing *= Math.pow(0.93, phaseCtx.cycle);
+      spacing /= Math.max(0.05, TUNING.TRAFFIC_DENSITY * this.densityMult);
       if (this.acc >= spacing) {
         this.acc = 0;
         const z = CONFIG.spawn.z + rand(-8, 8);
@@ -2042,7 +2261,7 @@ class TrafficSystem {
       for (let i = 0; i < slots.length; i++) {
         const v = slots[i];
         if (!v.active) continue;
-        v.z += (worldSpeed - v.speed) * dt;
+        v.z += (worldSpeed - v.speed) * dt * this.slowFactor;
         if (v.z > CONFIG.spawn.despawnZ) {
           v.active = false;
           bodyMesh.setMatrixAt(i, this.zeroM);
@@ -2108,6 +2327,10 @@ class TrafficSystem {
   }
   reset() {
     this.acc = 0;
+    this.densityMult = 1;
+    this.gapScale = 1;
+    this.slowFactor = 1;
+    this.congested = false;
     for (const [, pool] of Object.entries(this.pools)) {
       for (let i = 0; i < pool.slots.length; i++) {
         const v = pool.slots[i];
@@ -2120,6 +2343,542 @@ class TrafficSystem {
       pool.glowMesh.instanceMatrix.needsUpdate = true;
       if (pool.glowMesh.instanceColor) pool.glowMesh.instanceColor.needsUpdate = true;
     }
+  }
+}
+
+/* ============================================================
+   RAMP SYSTEM — lane ramps to climb & jump from
+============================================================ */
+class RampSystem {
+  constructor() {
+    const R = CONFIG.ramps;
+    this.slots = [];
+    const bodyMat = applyCurve(new THREE.MeshStandardMaterial({ color: 0x141828, metalness: 0.5, roughness: 0.5 }));
+    const neonMat = applyCurve(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 2.4, 2.8) }));
+    const chevMat = applyCurve(new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.8, 0.2) }));
+    for (let i = 0; i < 2; i++) {
+      const g = new THREE.Group();
+      /* up slope: box rotated; local z=0 is the base (player-facing end), extends -z */
+      const slopeLen = Math.hypot(R.upLen, R.height);
+      const slope = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.3, slopeLen), bodyMat);
+      const ang = Math.atan2(R.height, R.upLen);
+      slope.rotation.x = ang;
+      slope.position.set(0, R.height / 2 - 0.15, -R.upLen / 2);
+      g.add(slope);
+      /* platform */
+      const plat = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.3, R.platLen), bodyMat);
+      plat.position.set(0, R.height - 0.15, -R.upLen - R.platLen / 2);
+      g.add(plat);
+      /* neon edges */
+      for (const s of [-1, 1]) {
+        const e1 = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, slopeLen), neonMat);
+        e1.rotation.x = ang;
+        e1.position.set(s * 1.56, R.height / 2, -R.upLen / 2);
+        g.add(e1);
+        const e2 = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, R.platLen), neonMat);
+        e2.position.set(s * 1.56, R.height + 0.02, -R.upLen - R.platLen / 2);
+        g.add(e2);
+      }
+      /* chevrons on the approach */
+      for (let c = 0; c < 3; c++) {
+        const ch = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.06, 0.5), chevMat);
+        ch.position.set(0, 0.05, 6 + c * 4);
+        g.add(ch);
+      }
+      g.visible = false;
+      scene.add(g);
+      this.slots.push({ active: false, lane: 0, z: 0, prevEdge: -1, mesh: g });
+    }
+  }
+  blocksLane(lane, z) {
+    const R = CONFIG.ramps;
+    for (const r of this.slots) {
+      if (!r.active || r.lane !== lane) continue;
+      const zEdge = r.z - R.upLen - R.platLen;
+      if (z > zEdge - 60 && z < r.z + 60) return true;
+    }
+    return false;
+  }
+  get anyActive() { return this.slots.some(r => r.active); }
+  spawn(lane) {
+    const slot = this.slots.find(r => !r.active);
+    if (!slot) return false;
+    slot.active = true;
+    slot.lane = lane;
+    slot.z = -420;
+    slot.prevEdge = -1;
+    slot.mesh.visible = true;
+    slot.mesh.position.set(CONFIG.lanes[lane], 0, slot.z);
+    /* clear that lane so the approach is fair */
+    for (const v of traffic.all) {
+      if (v.active && v.lane === lane && v.z < -260) traffic.kill(v);
+    }
+    return true;
+  }
+  /* surface height under the player (x-lane match, z = 0) */
+  update(ds, game) {
+    const R = CONFIG.ramps;
+    let gh = 0;
+    for (const r of this.slots) {
+      if (!r.active) continue;
+      r.z += ds;
+      r.mesh.position.z = r.z;
+      const zEdge = r.z - R.upLen - R.platLen;
+      const laneX = CONFIG.lanes[r.lane];
+      const onLane = Math.abs(player.x - laneX) < 1.5;
+      if (onLane && !player.airborne) {
+        if (r.z >= 0 && r.z <= R.upLen) gh = Math.max(gh, (r.z / R.upLen) * R.height);
+        else if (r.z > R.upLen && zEdge <= 0) gh = Math.max(gh, R.height);
+      }
+      /* takeoff: edge crosses the player while riding the platform */
+      if (onLane && !player.airborne && r.prevEdge <= 0 && zEdge > 0 && player.y > R.height * 0.7) {
+        const vy = R.impulse + R.turboBonus * game.turboT;
+        player.launch(vy);
+        audio.jump();
+        haptics.turbo();
+      }
+      r.prevEdge = zEdge;
+      if (zEdge > 40) { r.active = false; r.mesh.visible = false; }
+    }
+    player.groundH = gh;
+  }
+  reset() {
+    for (const r of this.slots) { r.active = false; r.mesh.visible = false; r.z = 0; r.prevEdge = -1; }
+  }
+}
+
+/* ============================================================
+   TUNNEL SYSTEM — covered section with neon light rings
+============================================================ */
+class TunnelSystem {
+  constructor() {
+    this.len = 240;
+    this.active = false;
+    this.z = 0;              // entrance (max-z end); extends toward -z
+    this.inside = false;
+    this.cleanRun = true;
+    const parts = [];
+    /* walls + ceiling, dark (z-segmented so the curve bend follows the road) */
+    parts.push(cBox(0.8, 7.5, this.len, -8.8, 3.75, -this.len / 2, [0.018, 0.02, 0.034], 0, 48));
+    parts.push(cBox(0.8, 7.5, this.len, 8.8, 3.75, -this.len / 2, [0.018, 0.02, 0.034], 0, 48));
+    parts.push(cBox(18.4, 0.8, this.len, 0, 7.6, -this.len / 2, [0.014, 0.015, 0.028], 0, 48));
+    /* light rings every ringGap */
+    const n = Math.floor(this.len / CONFIG.tunnels.ringGap);
+    for (let i = 0; i < n; i++) {
+      const z = -i * CONFIG.tunnels.ringGap - 8;
+      const col = i % 2 ? [2.2, 0.15, 1.35] : [0.1, 2.2, 2.6];
+      parts.push(cBox(0.18, 6.8, 0.18, -8.3, 3.4, z, col));
+      parts.push(cBox(0.18, 6.8, 0.18, 8.3, 3.4, z, col));
+      parts.push(cBox(16.8, 0.18, 0.18, 0, 7.1, z, col));
+    }
+    /* floor guide strips */
+    parts.push(cBox(0.12, 0.05, this.len, -6.9, 0.03, -this.len / 2, [0.1, 1.6, 1.9], 0, 48));
+    parts.push(cBox(0.12, 0.05, this.len, 6.9, 0.03, -this.len / 2, [0.1, 1.6, 1.9], 0, 48));
+    this.mesh = new THREE.Mesh(mergeGeometries(parts), vcBasicMat);
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+    scene.add(this.mesh);
+  }
+  spawn() {
+    if (this.active) return false;
+    this.active = true;
+    this.z = -430;
+    this.cleanRun = true;
+    this.mesh.visible = true;
+    this.mesh.position.z = this.z;
+    return true;
+  }
+  update(dt, ds, game) {
+    if (!this.active) { this.inside = false; return; }
+    this.z += ds;
+    this.mesh.position.z = this.z;
+    const wasInside = this.inside;
+    this.inside = this.z > 0 && this.z - this.len < 0;
+    if (this.inside && !wasInside) audio.setTunnel(1);
+    if (!this.inside && wasInside) {
+      audio.setTunnel(0);
+      if (this.cleanRun && game.state === 'PLAYING') {
+        game.score += CONFIG.tunnels.bonus;
+        hud.floater(`TUNNEL CLEAR +${CONFIG.tunnels.bonus}`, true);
+        audio.bonus();
+      }
+    }
+    if (this.z - this.len > 60) { this.active = false; this.mesh.visible = false; }
+  }
+  reset() {
+    this.active = false; this.inside = false; this.cleanRun = true;
+    this.mesh.visible = false;
+    audio.setTunnel(0);
+  }
+}
+
+/* ============================================================
+   POWER-UP SYSTEM — holographic pickups
+============================================================ */
+class PowerupSystem {
+  constructor() {
+    this.slots = [];
+    this.magnet = false;
+    const P = CONFIG.powerups;
+    for (let i = 0; i < P.poolN; i++) {
+      const g = new THREE.Group();
+      const shell = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.62, 0),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.85 })
+      );
+      const core = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.3, 0),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+      );
+      const halo = new THREE.Mesh(
+        new THREE.RingGeometry(0.75, 0.9, 24),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      g.add(shell, core, halo);
+      g.visible = false;
+      scene.add(g);
+      this.slots.push({ active: false, type: 'shield', x: 0, z: -999, spin: rand(6.28), mesh: g, shell, core, halo });
+    }
+  }
+  pickType() {
+    const types = Object.entries(CONFIG.powerups.types);
+    let total = 0;
+    for (const [, def] of types) total += def.w;
+    let r = Math.random() * total;
+    for (const [name, def] of types) { r -= def.w; if (r <= 0) return name; }
+    return types[0][0];
+  }
+  spawn() {
+    const slot = this.slots.find(s => !s.active);
+    if (!slot) return false;
+    const lanes = [0, 1, 2, 3].filter(l => !ramps.blocksLane(l, -430));
+    if (!lanes.length) return false;
+    const lane = choose(lanes);
+    slot.active = true;
+    slot.type = this.pickType();
+    slot.x = CONFIG.lanes[lane];
+    slot.z = -430;
+    const c = new THREE.Color(CONFIG.powerups.types[slot.type].color);
+    slot.shell.material.color.copy(c).multiplyScalar(2.2);
+    slot.core.material.color.copy(c).multiplyScalar(2.8);
+    slot.halo.material.color.copy(c);
+    slot.mesh.visible = true;
+    return true;
+  }
+  update(dt, ds, time, game) {
+    for (const s of this.slots) {
+      if (!s.active) continue;
+      s.z += ds;
+      /* magnet: pull nearby pickups toward the player */
+      if (this.magnet && s.z > -50) s.x = damp(s.x, player.x, 5, dt);
+      if (s.z > 20) { s.active = false; s.mesh.visible = false; continue; }
+      s.spin += dt * 2.4;
+      s.mesh.position.set(s.x, 1.1 + Math.sin(time * 2.2 + s.spin) * 0.15, s.z);
+      s.mesh.rotation.y = s.spin;
+      s.halo.rotation.x = Math.PI / 2;
+      /* pickup */
+      if (game.state === 'PLAYING' && Math.abs(s.z) < 1.6 &&
+          Math.abs(s.x - player.x) < 1.35 && player.y < 1.6) {
+        s.active = false; s.mesh.visible = false;
+        game.collectPower(s.type);
+      }
+    }
+  }
+  reset() {
+    this.magnet = false;
+    for (const s of this.slots) { s.active = false; s.z = -999; s.mesh.visible = false; }
+  }
+}
+
+/* ============================================================
+   DRONE SYSTEM — patrol drones that project energy walls
+============================================================ */
+class DroneSystem {
+  constructor() {
+    const D = CONFIG.drones;
+    /* drone model */
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.SphereGeometry(0.8, 12, 8),
+      new THREE.MeshStandardMaterial({ color: 0x10121e, metalness: 0.8, roughness: 0.3 })
+    );
+    body.scale.set(1.4, 0.45, 1.4);
+    g.add(body);
+    this.rotors = [];
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const r = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.34, 0.34, 0.05, 10),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 1.8, 2.2), transparent: true, opacity: 0.6 })
+      );
+      r.position.set(sx * 1.05, 0.15, sz * 1.05);
+      g.add(r);
+      this.rotors.push(r);
+    }
+    this.eye = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 8, 6),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 3, 3) })
+    );
+    this.eye.position.set(0, -0.15, 0.7);
+    g.add(this.eye);
+    /* searchlight cone (fake) */
+    this.cone = new THREE.Mesh(
+      new THREE.ConeGeometry(1.1, 3.2, 12, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+    );
+    this.cone.position.y = -1.8;
+    g.add(this.cone);
+    g.visible = false;
+    scene.add(g);
+    this.mesh = g;
+    /* energy wall */
+    this.wallMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      uniforms: { uTime: { value: 0 }, uI: { value: 1 } },
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
+        void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+      `,
+      fragmentShader: /* glsl */`
+        varying vec2 vUv;
+        uniform float uTime, uI;
+        void main(){
+          float scan = 0.6 + 0.4 * sin(vUv.y * 46.0 - uTime * 26.0);
+          float edge = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x)
+                     * smoothstep(0.0, 0.10, vUv.y) * smoothstep(1.0, 0.90, vUv.y);
+          float grid = max(step(0.94, fract(vUv.x * 8.0)), step(0.94, fract(vUv.y * 5.0)));
+          vec3 col = vec3(2.6, 0.25, 0.30) * (0.45 * scan + 0.55 * grid) * uI;
+          gl_FragColor = vec4(col, (0.35 * scan + 0.4 * grid) * edge * uI);
+        }
+      `
+    });
+    this.wallMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 3.0), this.wallMat);
+    this.wallMesh.visible = false;
+    scene.add(this.wallMesh);
+    this.wall = { active: false, x: 0, z: 0, life: 0, dodged: false };
+    this.state = 'idle';
+    this.t = 0;
+    this.count = 0;    // drones launched this run
+    this.x = 0; this.y = 2.6;
+  }
+  launch() {
+    if (this.state !== 'idle') return false;
+    this.state = 'enter';
+    this.t = 0;
+    this.count++;
+    this.x = choose([-1, 1]) * 16;
+    this.mesh.visible = true;
+    this.eye.material.color.setRGB(3, 3, 3);
+    audio.droneAlert();
+    return true;
+  }
+  update(dt, ds, time, game) {
+    const D = CONFIG.drones;
+    /* wall lifecycle */
+    if (this.wall.active) {
+      const w = this.wall;
+      w.z += ds;
+      w.life -= dt;
+      this.wallMat.uniforms.uTime.value = time;
+      this.wallMat.uniforms.uI.value = clamp(w.life / 0.4, 0, 1);
+      this.wallMesh.position.set(w.x, 1.5, w.z);
+      /* collision (jumping over it clears it) */
+      if (game.state === 'PLAYING' &&
+          Math.abs(w.z) < 0.6 + CONFIG.playerHalfL &&
+          Math.abs(w.x - player.x) < 1.7 + CONFIG.playerHalfW &&
+          player.y < 2.3) {
+        w.active = false; this.wallMesh.visible = false;
+        game.hitHazard('wall');
+      }
+      /* dodge reward: wall passes the player */
+      if (w.active && !w.dodged && w.z > 3) {
+        w.dodged = true;
+        if (Math.abs(w.x - player.x) < 5.5 && game.state === 'PLAYING') {
+          game.score += D.nearMissPts;
+          hud.floater(`WALL DODGE +${D.nearMissPts}`, true);
+          audio.nearMiss(0);
+        }
+      }
+      if (w.life <= 0 || w.z > 30) { w.active = false; this.wallMesh.visible = false; }
+    }
+    if (this.state === 'idle') return;
+    this.t += dt;
+    for (const r of this.rotors) r.rotation.y += dt * 40;
+    const hover = Math.sin(time * 3.1) * 0.12;
+    if (this.state === 'enter') {
+      this.x = damp(this.x, player.x, 2.5, dt);
+      if (this.t > 1.0) { this.state = 'track'; this.t = 0; }
+    } else if (this.state === 'track') {
+      this.x = damp(this.x, player.x, 3.5, dt);
+      /* strobing white light */
+      const on = Math.sin(time * 18) > 0 ? 3 : 0.4;
+      this.eye.material.color.setRGB(on, on, on);
+      this.cone.material.opacity = 0.10 + 0.08 * (on > 1 ? 1 : 0);
+      if (this.t > D.trackTime) { this.state = 'lock'; this.t = 0; this.lockX = this.x; audio.droneCharge(); }
+    } else if (this.state === 'lock') {
+      /* red, fixed on the locked lane */
+      this.eye.material.color.setRGB(3, 0.1, 0.1);
+      this.cone.material.color.setRGB(2, 0.1, 0.1);
+      this.cone.material.opacity = 0.22;
+      if (this.t > D.lockTime) {
+        /* fairness: abort if the wall would seal every lane */
+        const blocked = traffic.lanesBlockedNear(D.wallZ, 30);
+        let lockLane = 0, best = 1e9;
+        for (let l = 0; l < 4; l++) {
+          const d = Math.abs(CONFIG.lanes[l] - this.lockX);
+          if (d < best) { best = d; lockLane = l; }
+        }
+        blocked.add(lockLane);
+        if (blocked.size < 4) {
+          this.wall.active = true;
+          this.wall.x = CONFIG.lanes[lockLane];
+          this.wall.z = D.wallZ * 0.55;
+          this.wall.life = D.wallLife;
+          this.wall.dodged = false;
+          this.wallMesh.visible = true;
+          audio.droneZap();
+        }
+        this.state = 'leave'; this.t = 0;
+      }
+    } else if (this.state === 'leave') {
+      this.y += dt * 6;
+      this.cone.material.opacity = damp(this.cone.material.opacity, 0, 4, dt);
+      if (this.t > 1.4) {
+        this.state = 'idle';
+        this.mesh.visible = false;
+        this.y = 2.6;
+        this.cone.material.color.setRGB(1, 1, 1);
+      }
+    }
+    this.mesh.position.set(this.x, this.y + hover, -58);
+    this.mesh.rotation.z = clamp((player.x - this.x) * 0.05, -0.2, 0.2);
+  }
+  reset() {
+    this.state = 'idle';
+    this.count = 0;
+    this.y = 2.6;
+    this.mesh.visible = false;
+    this.wall.active = false;
+    this.wallMesh.visible = false;
+    this.cone.material.color.setRGB(1, 1, 1);
+  }
+}
+
+/* ============================================================
+   CURVE SYSTEM — visual road bending (logic stays straight)
+============================================================ */
+class CurveSystem {
+  constructor() {
+    this.mode = 'straight';
+    this.remaining = 400;
+    this.kTarget = 0;
+    this.dir = 1;
+    this.warned = false;
+  }
+  get k() { return curveUniform.value; }
+  get isSharp() { return Math.abs(this.kTarget) > CONFIG.curves.kGentle * 1.4; }
+  get isCurving() { return this.mode === 'curve'; }
+  update(dt, ds, km) {
+    const C = CONFIG.curves;
+    if (km >= C.minKm) {
+      this.remaining -= ds;
+      if (this.remaining <= 0) {
+        if (this.mode === 'straight') {
+          this.mode = 'curve';
+          this.dir = -this.dir;
+          const sharp = Math.random() < clamp((km - C.minKm) * 0.08, 0.15, 0.6);
+          this.kTarget = this.dir * (sharp ? C.kSharp : C.kGentle) * rand(0.85, 1.15);
+          this.remaining = rand(C.lenMin, C.lenMax);
+          if (sharp && !this.warned) hud.banner(this.dir > 0 ? 'SHARP CURVE &rarr;' : '&larr; SHARP CURVE');
+          this.warned = true;
+        } else {
+          this.mode = 'straight';
+          this.kTarget = 0;
+          this.remaining = rand(C.straightMin, C.straightMax);
+          this.warned = false;
+        }
+      }
+    }
+    curveUniform.value = damp(curveUniform.value, this.kTarget, 0.9, dt);
+    /* extra lean into the curve */
+    player.curveLean = -curveUniform.value * 800 * C.leanExtra;
+  }
+  reset() {
+    this.mode = 'straight';
+    this.remaining = 400;
+    this.kTarget = 0;
+    this.warned = false;
+    curveUniform.value = 0;
+    player.curveLean = 0;
+  }
+}
+
+/* ============================================================
+   EVENT DIRECTOR — schedules macro events with exclusions
+============================================================ */
+class EventDirector {
+  constructor() { this.reset(); }
+  reset() {
+    this.nextRamp = CONFIG.ramps.minKm * 1000 + rand(0, 200);
+    this.nextTunnel = CONFIG.tunnels.minKm * 1000 + rand(0, 300);
+    this.nextPower = CONFIG.powerups.minKm * 1000;
+    this.nextZone = CONFIG.congestion.minKm * 1000 + rand(0, 400);
+    this.zoneStart = -1; this.zoneEnd = -1; this.zoneClean = true; this.zoneActive = false;
+    this.droneCd = rand(CONFIG.drones.cooldownMin, CONFIG.drones.cooldownMax);
+  }
+  update(dt, ds, km, game) {
+    const dist = game.distance;
+    const mild = Math.abs(curveSys.k) < CONFIG.curves.kGentle;
+    /* ramps: never in tunnels nor sharp curves */
+    if (dist > this.nextRamp && !tunnel.active && !curveSys.isSharp && mild) {
+      if (ramps.spawn(randi(0, 3))) this.nextRamp = dist + rand(CONFIG.ramps.gapMin, CONFIG.ramps.gapMax);
+    }
+    /* tunnels: never overlapping ramps */
+    if (dist > this.nextTunnel && !ramps.anyActive && !curveSys.isSharp) {
+      if (tunnel.spawn()) this.nextTunnel = dist + tunnel.len + rand(CONFIG.tunnels.gapMin, CONFIG.tunnels.gapMax);
+    }
+    /* power-ups */
+    if (dist > this.nextPower) {
+      if (powerups.spawn()) this.nextPower = dist + rand(CONFIG.powerups.gapMin, CONFIG.powerups.gapMax);
+    }
+    /* congestion zones: never inside tunnels */
+    const Z = CONFIG.congestion;
+    if (this.zoneStart < 0 && dist > this.nextZone && !tunnel.active) {
+      this.zoneStart = dist + Z.warnDist;
+      this.zoneEnd = this.zoneStart + rand(Z.lenMin, Z.lenMax);
+      this.zoneClean = true;
+      hud.banner('&#9888; HEAVY TRAFFIC AHEAD');
+      audio.blip();
+    }
+    const inZone = this.zoneStart >= 0 && dist >= this.zoneStart && dist < this.zoneEnd;
+    if (inZone && !this.zoneActive) this.zoneActive = true;
+    if (!inZone && this.zoneActive) {
+      this.zoneActive = false;
+      if (this.zoneClean && game.state === 'PLAYING') {
+        game.score += Z.bonus;
+        game.mult = Math.min(CONFIG.score.multMax, game.mult + 1.0);
+        hud.floater(`ZONE CLEAR +${Z.bonus}`, true);
+        audio.bonus();
+      }
+      this.zoneStart = -1;
+      this.nextZone = dist + rand(Z.gapMin, Z.gapMax);
+    }
+    /* traffic modifiers: congestion vs tunnel cap */
+    traffic.congested = this.zoneActive;
+    traffic.densityMult = this.zoneActive ? Z.density : 1;
+    traffic.gapScale = this.zoneActive ? Z.gapWindowScale : 1;
+    if (tunnel.inside) traffic.densityMult = Math.min(traffic.densityMult, CONFIG.tunnels.densityCap);
+    /* drones */
+    if (km >= CONFIG.drones.minKm) {
+      this.droneCd -= dt;
+      if (this.droneCd <= 0 && drones.launch()) {
+        this.droneCd = rand(CONFIG.drones.cooldownMin, CONFIG.drones.cooldownMax)
+                     * (km >= CONFIG.drones.twoAtKm ? 0.6 : 1);
+      }
+    }
+  }
+  noteCollisionContext() {
+    if (this.zoneActive) this.zoneClean = false;
+    if (tunnel.inside) tunnel.cleanRun = false;
   }
 }
 
@@ -2137,6 +2896,7 @@ class CameraRig {
     this.tp = new THREE.Vector3(); this.tl = new THREE.Vector3();
     this.fp = new THREE.Vector3(); this.fl = new THREE.Vector3();
     this.mp = new THREE.Vector3(); this.ml = new THREE.Vector3();
+    this.airBlend = 0;
   }
   toggle() {
     this.mode = this.mode ? 0 : 1;
@@ -2147,16 +2907,19 @@ class CameraRig {
     this.blend = damp(this.blend, this.mode, 8, dt);
     this.menuT = damp(this.menuT, state === 'MENU' ? 1 : 0, 2.2, dt);
     const bx = player.x;
+    const by = player.y;
+    this.airBlend = damp(this.airBlend, player.airborne ? 1 : 0, 5, dt);
     const b = smoothstep(0, 1, this.blend);
-    /* third person, with lateral lag */
-    this.tp.set(bx * 0.72, CONFIG.cam.third.pos[1], CONFIG.cam.third.pos[2]);
-    this.tl.set(bx * 0.9, 1.15, -9);
+    /* third person, with lateral lag; follows jumps vertically */
+    this.tp.set(bx * 0.72, CONFIG.cam.third.pos[1] + by * 0.8, CONFIG.cam.third.pos[2]);
+    this.tl.set(bx * 0.9, 1.15 + by * 0.9, -9);
     /* first person cockpit */
-    this.fp.set(bx, CONFIG.cam.first.pos[1], CONFIG.cam.first.pos[2]);
-    this.fl.set(bx - player.lean * 2.2, 1.02, -16);
+    this.fp.set(bx, CONFIG.cam.first.pos[1] + by, CONFIG.cam.first.pos[2]);
+    this.fl.set(bx - player.lean * 2.2, 1.02 + by - player.vy * 0.12 * this.airBlend, -16);
     this.pos.lerpVectors(this.tp, this.fp, b);
     this.look.lerpVectors(this.tl, this.fl, b);
-    let fovT = lerp(CONFIG.cam.third.fov, CONFIG.cam.first.fov, b) + CONFIG.turbo.fovBoost * turboT;
+    let fovT = lerp(CONFIG.cam.third.fov, CONFIG.cam.first.fov, b)
+             + CONFIG.turbo.fovBoost * turboT + 6 * this.airBlend;
     /* menu cinematic framing */
     if (this.menuT > 0.001) {
       this.mp.set(Math.sin(time * 0.22) * 4.4, 2.1 + Math.sin(time * 0.13) * 0.4, 6.4);
@@ -2174,7 +2937,7 @@ class CameraRig {
     camera.position.x += sx;
     camera.position.y += sy;
     camera.lookAt(this.look);
-    camera.rotation.z += player.lean * (0.12 + 0.6 * b);
+    camera.rotation.z += player.lean * (0.12 + 0.6 * b) + curveUniform.value * 250 * (1 - this.menuT);
     this.fov = damp(this.fov, fovT, 8, dt);
     camera.fov = this.fov;
     camera.updateProjectionMatrix();
@@ -2193,6 +2956,9 @@ class HUD {
     this.floaters = $('floaters'); this.camInd = $('camInd'); this.phaseEl = $('phase');
     this.menuBest = $('menuBest'); this.muteInd = $('muteInd');
     this.goDist = $('goDist'); this.goScore = $('goScore'); this.goBest = $('goBest'); this.newRec = $('newRec');
+    this.power = $('power'); this.powerLabel = $('powerLabel'); this.powerFill = $('powerFill');
+    this.bannerEl = $('banner');
+    this._bannerTimer = null;
     this._speedTxt = ''; this._distTxt = ''; this._scoreTxt = ''; this._multTxt = '';
     this._prevMult = 1;
     this._phaseTimer = null; this._camTimer = null;
@@ -2253,6 +3019,19 @@ class HUD {
     clearTimeout(this._camTimer);
     this._camTimer = setTimeout(() => this.camInd.classList.remove('show'), 1300);
   }
+  setPower(label, frac, colorHex) {
+    if (!label) { this.power.classList.remove('show'); return; }
+    this.power.classList.add('show');
+    this.power.style.setProperty('--pcol', colorHex);
+    this.powerLabel.textContent = label;
+    this.powerFill.style.transform = `scaleX(${clamp(frac, 0, 1).toFixed(3)})`;
+  }
+  banner(html) {
+    this.bannerEl.innerHTML = html;
+    this.bannerEl.classList.add('show');
+    clearTimeout(this._bannerTimer);
+    this._bannerTimer = setTimeout(() => this.bannerEl.classList.remove('show'), 2400);
+  }
   setMuted(m) { this.muteInd.classList.toggle('show', m); }
   showGameOver(km, score, best, isNew) {
     this.goDist.textContent = `${km.toFixed(2)} KM`;
@@ -2286,6 +3065,10 @@ class Game {
     this.glitch = 0;
     this.goAt = 0;
     this.phaseIdx = -1;
+    this.power = null;       // active power-up type (or null)
+    this.powerT = 0;         // remaining time
+    this.landGrace = 0;      // collision grace right after landing
+    this.tint = 0;           // slow-mo blue tint
     this.best = store.get('neonrider.best', { score: 0, km: 0 });
     /* fps monitor / auto degrade */
     this.fpsAcc = 0; this.fpsN = 0; this.degrade = 0;
@@ -2312,21 +3095,60 @@ class Game {
     this.tsTarget = 1;
     this.glitch = 0;
     this.phaseIdx = -1;
+    this.power = null;
+    this.powerT = 0;
+    this.landGrace = 0;
+    this.tint = 0;
     player.reset();
     traffic.reset();
     traffic.seed(CONFIG.speed.base);
     road.reset();
     sky.reset();
+    ramps.reset();
+    tunnel.reset();
+    powerups.reset();
+    drones.reset();
+    curveSys.reset();
+    director.reset();
+    scene.fog.density = CONFIG.fog;
+    hud.setPower(null);
     hud.screen('hud');
     audio.setPhase(0);
   }
+  collectPower(type) {
+    const def = CONFIG.powerups.types[type];
+    audio.pickup();
+    haptics.nearMiss();
+    hud.floater(def.label, true);
+    if (type === 'turbofill') { this.turboBar = 1; return; }   // instant
+    this.power = type;                                          // only one active
+    this.powerT = def.dur;
+  }
+  clearPower() {
+    this.power = null;
+    this.powerT = 0;
+    hud.setPower(null);
+  }
+  /* fatal hit from a hazard (drone wall) — shield can absorb it */
+  hitHazard() {
+    if (this.power === 'shield') {
+      this.clearPower();
+      audio.shieldBreak();
+      this.glitch = Math.max(this.glitch, 0.5);
+      hud.floater('SHIELD BROKEN');
+      return;
+    }
+    this.die();
+  }
   die() {
     if (this.state !== 'PLAYING') return;
+    director.noteCollisionContext();
     this.state = 'DYING';
     this.deathT = 0;
     this.tsTarget = 0.18;
     this.glitch = 1;
     player.dying = true;
+    hud.setPower(null);
     audio.crash();
     audio.gameOver();
     haptics.crash();
@@ -2356,20 +3178,35 @@ class Game {
     }
   }
   nearMiss(v) {
-    this.score += CONFIG.score.nearMiss;
+    const pts = Math.round(CONFIG.score.nearMiss * (this.power === 'magnet' ? 1.5 : 1));
+    this.score += pts;
     this.mult = Math.min(CONFIG.score.multMax, this.mult + CONFIG.score.multStep);
     this.lastNM = this.time;
-    hud.floater(`NEAR MISS +${CONFIG.score.nearMiss}`);
+    hud.floater(`NEAR MISS +${pts}`);
     audio.nearMiss(Math.sign(v.x - player.x) * 0.6);
     haptics.nearMiss();
   }
   collisions() {
+    /* airborne / just-landed: ground traffic can't touch you */
+    if (player.y > 0.9 || this.landGrace > 0) return;
     for (const v of traffic.all) {
       if (!v.active) continue;
       const zOverlap = Math.abs(v.z) < v.halfL + CONFIG.playerHalfL;
       if (zOverlap) {
         const gap = Math.abs(v.x - player.x) - (v.halfW + CONFIG.playerHalfW);
-        if (gap < 0) { this.die(); return; }
+        if (gap < 0) {
+          if (this.power === 'shield') {
+            traffic.kill(v);
+            this.clearPower();
+            audio.shieldBreak();
+            haptics.nearMiss();
+            this.glitch = Math.max(this.glitch, 0.5);
+            hud.floater('SHIELD BROKEN');
+            continue;
+          }
+          this.die();
+          return;
+        }
         if (gap < v.minGap) v.minGap = gap;
       } else if (!v.passed && v.z - v.halfL > CONFIG.playerHalfL) {
         v.passed = true;
@@ -2413,11 +3250,34 @@ class Game {
       } else {
         this.turboBar = Math.min(1, this.turboBar + CONFIG.turbo.rechargePerKm * ds / 1000);
       }
-      /* score: speed x dt x multiplier (x2 while turbo) */
-      this.score += this.speed * dt * this.mult * (this.turboActive ? 2 : 1);
+      /* score: speed x dt x multiplier (x2 turbo, x2 double points) */
+      this.score += this.speed * dt * this.mult * (this.turboActive ? 2 : 1) * (this.power === 'double' ? 2 : 1);
       if (this.time - this.lastNM > CONFIG.score.decayDelay) {
         this.mult = Math.max(1, this.mult - CONFIG.score.decayRate * dt);
       }
+      /* power-up timer & continuous effects */
+      if (this.power) {
+        this.powerT -= dt;
+        if (this.powerT <= 0) this.clearPower();
+        else {
+          const def = CONFIG.powerups.types[this.power];
+          hud.setPower(def.label, def.dur > 0 ? this.powerT / def.dur : 1, '#' + def.color.toString(16).padStart(6, '0'));
+        }
+      }
+      traffic.slowFactor = this.power === 'slowmo' ? 0.55 : 1;
+      powerups.magnet = this.power === 'magnet';
+      /* airtime score + clean landing bonus */
+      if (player.airborne) this.score += CONFIG.ramps.airPtsPerSec * dt * this.mult;
+      if (player.justLanded) {
+        player.justLanded = false;
+        this.landGrace = 0.35;
+        this.score += CONFIG.ramps.landBonus * this.mult;
+        this.mult = Math.min(CONFIG.score.multMax, this.mult + 0.5);
+        hud.floater(`CLEAN LANDING +${CONFIG.ramps.landBonus}`);
+        audio.land();
+        haptics.lane();
+      }
+      if (this.landGrace > 0) this.landGrace -= dt;
     } else if (st === 'DYING') {
       this.speed = damp(this.speed, 0, 2.0, dt);
       this.turboT = damp(this.turboT, 0, 6, dt);
@@ -2448,6 +3308,25 @@ class Game {
     road.update(ds, this.time, player.x, this.turboT);
     sky.update(dt, this.time);
     city.update(dt, this.time);
+    /* SPECS2: macro events (before player so groundH is fresh) */
+    if (st === 'PLAYING') director.update(dt, ds, km, this);
+    curveSys.update(dt, ds, st === 'PLAYING' ? km : 0);
+    ramps.update(ds, this);
+    tunnel.update(dt, ds, this);
+    powerups.update(dt, ds, this.time, this);
+    drones.update(dt, ds, this.time, this);
+    /* tunnel atmosphere: dense dark fog, no rain inside */
+    const fogTarget = tunnel.inside ? CONFIG.fog * CONFIG.tunnels.fogMult : CONFIG.fog;
+    scene.fog.density = damp(scene.fog.density, fogTarget, 2.5, dt);
+    this.tunnelBlend = damp(this.tunnelBlend || 0, tunnel.inside ? 1 : 0, 2.5, dt);
+    scene.fog.color.multiplyScalar(1 - 0.6 * this.tunnelBlend);
+    rain.mesh.visible = rain.enabled && !tunnel.inside;
+    /* shield bubble */
+    shieldBubble.material.opacity = damp(shieldBubble.material.opacity, this.power === 'shield' ? 0.3 : 0, 6, dt);
+    shieldBubble.visible = shieldBubble.material.opacity > 0.01;
+    shieldBubble.rotation.y += dt * 0.9;
+    /* slow-mo blue tint */
+    this.tint = damp(this.tint, this.power === 'slowmo' ? 0.55 : 0, 5, dt);
     rain.update(dt, this.speed);
     streaks.update(dt, this.speed, st === 'PLAYING' ? this.turboT : 0);
     player.update(dt, ds, speedNorm, this.turboT, this.time);
@@ -2460,6 +3339,7 @@ class Game {
     this.glitch = Math.max(st === 'DYING' ? 0.35 : 0, this.glitch - dtReal * 1.6);
     fxPass.uniforms.uTime.value = this.time;
     fxPass.uniforms.uGlitch.value = this.glitch;
+    fxPass.uniforms.uTint.value = this.tint;
     fxPass.uniforms.uAberr.value = 0.0018 + this.turboT * 0.0045 + this.glitch * 0.028;
 
     /* audio + camera + hud */
@@ -2498,11 +3378,28 @@ const rain = new RainSystem();
 const streaks = new StreakSystem();
 const player = new Player();
 const traffic = new TrafficSystem();
+const ramps = new RampSystem();
+const tunnel = new TunnelSystem();
+const powerups = new PowerupSystem();
+const drones = new DroneSystem();
+const curveSys = new CurveSystem();
+const director = new EventDirector();
+/* shield bubble around the bike */
+const shieldBubble = new THREE.Mesh(
+  new THREE.SphereGeometry(1.55, 18, 12),
+  new THREE.MeshBasicMaterial({
+    color: new THREE.Color(0.2, 1.8, 2.2), wireframe: true,
+    transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+  })
+);
+shieldBubble.position.y = 0.85;
+shieldBubble.visible = false;
+player.root.add(shieldBubble);
 const rig = new CameraRig();
 const hud = new HUD();
 const game = new Game();
 /* small debug/testing hook */
-window.NEONRIDER = { game, phaseCtx, player, traffic, rig, haptics };
+window.NEONRIDER = { game, phaseCtx, player, traffic, rig, haptics, ramps, tunnel, powerups, drones, curveSys, director, TUNING };
 hud.setBest(game.best);
 hud.setMuted(audio.muted);
 hud.screen('menu');
